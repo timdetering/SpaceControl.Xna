@@ -16,7 +16,7 @@ namespace SpaceControl.Entities
         protected static List<string> s_planetNames = new List<string>();
         protected static AppSettingsReader s_reader = new AppSettingsReader();
         protected static bool init = false;
-
+        protected static RenderTarget2D fontDrawSurface = null;
         float[] cloudRotation;
         float[] cloudRotationRate;
 
@@ -75,12 +75,13 @@ namespace SpaceControl.Entities
 
             return outgoingDeployments[i];
         }
-            public Planet()
+
+        public Planet()
             : base()
         {
             if (init == false)
                 Planet.Initialize();
-            if (r.Next(100)%2 == 0)
+            if (r.Next(100) % 2 == 0)
                 modelName = LoadModel("Planet");
             else
                 modelName = LoadModel("GasPlanet");
@@ -107,8 +108,9 @@ namespace SpaceControl.Entities
                 dispatchHistory.Add(-1);
 
             dispatchRates.Add(1.0f);    //defense fleet will always occupy spot 0, and start as 100%
-                                        //of fleet deployments.
+            //of fleet deployments.
             dispatchHistory[0] = 0;
+
         }
 
         public Planet(Vector3 position)
@@ -132,6 +134,7 @@ namespace SpaceControl.Entities
                 string s = sr.ReadLine();
                 s_planetNames.Add(s);
             }
+
         }
 
 
@@ -150,6 +153,9 @@ namespace SpaceControl.Entities
 
             for (int i = 0; i < cloudRotationRate.Length; i++)
                 cloudRotation[i] = (cloudRotation[i] + cloudRotationRate[i] * ((float)time.ElapsedGameTime.Milliseconds / 100.0f));
+
+            foreach (DeploymentRoute r in outgoingDeployments)
+                r.Update(time);
         }
 
         /// <summary>
@@ -224,12 +230,14 @@ namespace SpaceControl.Entities
 
         public override void Draw(GraphicsDevice drawDevice, Camera drawCamera)
         {
+
             Model m = GetModel(modelName);
             Matrix[] transforms = new Matrix[m.Bones.Count];
             m.CopyAbsoluteBoneTransformsTo(transforms);
 
             drawDevice.RenderState.DepthBufferEnable = true;
             drawDevice.RenderState.DepthBufferWriteEnable = true;
+
             ModelMesh ground = m.Meshes["Ground"];
 
             if (ground != null)
@@ -246,6 +254,7 @@ namespace SpaceControl.Entities
                 ground.Draw();
 
             }
+            
             //support more than 1 cloud layer.
             drawDevice.RenderState.AlphaBlendEnable = true;
             drawDevice.RenderState.AlphaTestEnable = true;
@@ -254,7 +263,7 @@ namespace SpaceControl.Entities
             drawDevice.RenderState.DestinationBlend = Blend.InverseSourceAlpha;
             drawDevice.RenderState.DepthBufferWriteEnable = false;
 
-
+            
 
             ModelMesh clouds = m.Meshes["Clouds"];
 
@@ -268,28 +277,54 @@ namespace SpaceControl.Entities
 
 
                 }
-                clouds.Draw();
+            clouds.Draw();
             drawDevice.RenderState.DepthBufferWriteEnable = true;
             drawDevice.RenderState.CullMode = CullMode.CullCounterClockwiseFace;
 
-            Vector3 unprojected = drawDevice.Viewport.Project(new Vector3(worldPosition.X, worldPosition.Y + 3.0f * m.Meshes[0].BoundingSphere.Radius, worldPosition.Z),
+            
+            Vector3 drawPosition = worldPosition + (clouds.BoundingSphere.Radius * Vector3.Cross(drawCamera.View.Forward, Vector3.Left));
+
+            Vector3 unprojected = drawDevice.Viewport.Project(drawPosition,
                 drawCamera.Projection, drawCamera.View,
                 Matrix.CreateTranslation(Vector3.Zero));
+            Vector3 maxContraints = drawDevice.Viewport.Project(new Vector3(drawPosition.X, drawPosition.Y - clouds.BoundingSphere.Radius * 2, drawPosition.Z),
+                drawCamera.Projection, drawCamera.View, Matrix.CreateTranslation(Vector3.Zero));
+            float height = Math.Abs(unprojected.Y - maxContraints.Y);
+
             //Draw the text info over the planet.
+           
             s_sprite.Begin(SpriteBlendMode.AlphaBlend);
             Vector2 stringSize = s_font.MeasureString(string.Format("Defense Fleets: ", defenseFleets));
-            s_sprite.DrawString(s_font, string.Format("Defense Fleets: {0}", defenseFleets),
-                new Vector2(unprojected.X - (0.5f * stringSize.X), unprojected.Y), owner.PlayerColor);
-            s_sprite.End();
+            float scale = height / stringSize.Y;
+            if (scale > 2.0f)
+                scale = 2.0f;
+            if (scale < 0.33f)
+                scale = 0.33f;
 
-            lock (outgoingDeployments)
-            {
-                for (int i = 0; i < outgoingDeployments.Count; i++)
-                    outgoingDeployments[i].Draw(drawDevice, drawCamera);
-            }
+            Vector2 position = new Vector2(unprojected.X, unprojected.Y - 3 * stringSize.Y * scale);
+            //s_sprite.DrawString(s_font, string.Format("{1}\nDefense Fleets: {0}", defenseFleets, name),
+            //    new Vector2(unprojected.X - (0.5f * stringSize.X), unprojected.Y-stringSize.Y * 2), owner.PlayerColor);
+            s_sprite.DrawString(s_font, string.Format("{0}\nDefense Fleets: {1}", name, defenseFleets),
+                position, owner.PlayerColor,
+                0.0f, Vector2.Zero, scale, SpriteEffects.None, 0.0f);
+            s_sprite.End();
+            
+
+
+            for (int i = 0; i < outgoingDeployments.Count; i++)
+                outgoingDeployments[i].Draw(drawDevice, drawCamera);
 
         }
 
+        /// <summary>
+        /// Checks if a screen coordinate falls within the planet's model on the screen.
+        /// Assumes (0, 0) is the uppler left corner of the screen
+        /// </summary>
+        /// <param name="x">Horizontal position of the point</param>
+        /// <param name="y">Vertical position of the point</param>
+        /// <param name="view">View matrix being used to display the model</param>
+        /// <param name="projection"Projection matrix used to display the model></param>
+        /// <returns>True if the x, y, coordinate is in the model, otherwise false</returns>
         public override bool PointIsIn(float x, float y, Matrix view, Matrix projection)
         {
             Ray r = SpaceControl.Utility.PickingHelper.GetRay(x, y, view, projection, Matrix.CreateTranslation(worldPosition), s_graphics.Viewport);
@@ -305,24 +340,32 @@ namespace SpaceControl.Entities
             return false;
         }
 
+        /// <summary>
+        /// Adds a new depolyment route to the planet's inventory.  
+        /// It also resets the the dispatch history to avoid biasing towards the new 
+        /// dispatch route.  
+        /// </summary>
+        /// <param name="destination">Planet the fleets will be sent to</param>
         public void CreateDeploymentRoute(Planet destination)
         {
-            lock (outgoingDeployments)
-            {
-                outgoingDeployments.Add(new DeploymentRoute(this, destination));
-            }
-            lock (dispatchRates)
-            {
-                dispatchRates.Add(1.0f / (float)(dispatchRates.Count + 1));
-            }
+            
+            outgoingDeployments.Add(new DeploymentRoute(this, destination));
+            
+            dispatchRates.Add(1.0f / (float)(dispatchRates.Count + 1));
             //adding a new depolyment route means we need to reset the counters for all the 
             //fleet depolyment informaiton, otherwise the newest route has a substantial dissadvantage
+            //and will get a large number of fleets sent to it before the history balances out.
             for (int i = 0; i < 100; i++)
                 dispatchHistory[i] = -1;
             dispatchHistory[0] = 0;
             dispatchIndex = 1;
         }
 
+        /// <summary>
+        /// Creates a new depolyment route with a specific depolyment rate.  
+        /// </summary>
+        /// <param name="desitnation"></param>
+        /// <param name="production"></param>
         public void CreateDeploymentRoute(Planet desitnation, float production)
         {
             CreateDeploymentRoute(desitnation);
@@ -331,8 +374,15 @@ namespace SpaceControl.Entities
 
         }
 
+        /// <summary>
+        /// A new fleet has arrived at this planet. This may come from the planet's own production
+        /// or a depolyment route has deposited a fleet as this planet.
+        /// 
+        /// </summary>
+        /// <param name="f">The fleet arrving</param>
         public void ReceiveFleet(Fleet f)
         {
+            //if it's the same player's fleet, send it on its way.
             if (f.owner == this.owner)
                 DispatchFleet();
             else
@@ -343,6 +393,8 @@ namespace SpaceControl.Entities
                 {
                     owner.RemovePlanet(this);
                     owner = f.owner;
+                    foreach (DeploymentRoute r in outgoingDeployments)
+                        r.UpdateColors(r.Source.Owner.PlayerColor, r.Desitnation.Owner.PlayerColor);
                     owner.AddPlanet(this);
                 }
             }
@@ -357,6 +409,12 @@ namespace SpaceControl.Entities
             return false;
         }
 
+        /// <summary>
+        /// A callback for a GUI_Button on Click event.  This function reads the index in the
+        /// Button's name (passed in the sender object parameter and removes the route of that
+        /// index for the planet.
+        /// </summary>
+        /// <param name="sender">GUI_Button object that was clicked</param>
         public void CancelRoute(object sender)
         {
             int removeIndex = -1;
@@ -395,6 +453,10 @@ namespace SpaceControl.Entities
 
         }
 
+        /// <summary>
+        /// Normalizes values to DispatchRates[].  This is called after adding or removing a route
+        /// or changing the depolyment rates on a route.
+        /// </summary>
         public void NormalizeRoutes()
         {
             float totalCommitted = 0.0f;
@@ -415,6 +477,12 @@ namespace SpaceControl.Entities
             }
         }
 
+        /// <summary>
+        /// Gets the index of the route that has the specified planet as its destination.
+        /// </summary>
+        /// <param name="p">The Destination planet to search for</param>
+        /// <returns>The index of the route from outGoingDepolyments, -1 if no
+        /// route with that destination is found</returns>
         public int GetRouteByDestination(Planet p)
         {
             for (int i = 0; i < outgoingDeployments.Count; i++)

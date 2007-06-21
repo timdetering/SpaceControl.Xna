@@ -61,6 +61,19 @@ namespace SpaceControl.Entities
             this.destination = destination;
             fleetsInRoute = new List<Fleet>(1);
             owner = source.Owner;
+
+            CreateVerts();
+            LoadTexture(fleetTexture);
+            LoadTexture(c_RouteTexuteName);
+
+            if (depolymentEffect == null)
+            {
+                LoadEffect();
+            }
+        }
+
+        protected void CreateVerts()
+        {
             verts = new VertexPositionColorTexture[4];
             verts[0] = new VertexPositionColorTexture(
                 source.Position, owner.PlayerColor, new Vector2(0, 0));
@@ -72,16 +85,7 @@ namespace SpaceControl.Entities
             verts[3] = new VertexPositionColorTexture(
                 new Vector3(destination.Position.X + 1, destination.Position.Y + 1, destination.Position.Z),
                 destination.Owner.PlayerColor, new Vector2(10, 1));
-
-            LoadTexture(fleetTexture);
-            LoadTexture(c_RouteTexuteName);
-
-            if (depolymentEffect == null)
-            {
-                LoadEffect();
-            }
         }
-
         protected void LoadEffect()
         {
             depolymentEffect = s_Content.Load<Effect>(c_RouteEffect);
@@ -132,12 +136,15 @@ namespace SpaceControl.Entities
             Vector3 direction = destination.Position - source.Position;
             float distance = direction.Length();
             direction.Normalize();
-            //Draw the background for the route.
+            //Draw the background for the route
+               
             depolymentEffect.Parameters["xView"].SetValue(viewCamera.View);
+                
             depolymentEffect.Parameters["xProjection"].SetValue(viewCamera.Projection);
+               
             depolymentEffect.Parameters["xWorld"].SetValue(Matrix.CreateTranslation(0, 0, 0));
 
-            depolymentEffect.Begin();
+            
             drawDevice.SamplerStates[0].AddressU = TextureAddressMode.Wrap;
             drawDevice.SamplerStates[0].AddressV = TextureAddressMode.Border;
             drawDevice.RenderState.CullMode = CullMode.None;
@@ -149,11 +156,14 @@ namespace SpaceControl.Entities
             Vector3 cameraLook = new Vector3(viewCamera.View.M13, viewCamera.View.M23, viewCamera.View.M33);
             Vector3 perp = Vector3.Cross(cameraLook, direction);
             perp.Normalize();
+            
             verts[1].Position = verts[0].Position + (3 * perp);
             verts[3].Position = verts[2].Position + (3 * perp);
             verts[2].Color = destination.Owner.PlayerColor;
             verts[3].Color = destination.Owner.PlayerColor;
+            drawDevice.RenderState.CullMode = CullMode.None;
 
+            depolymentEffect.Begin();
             foreach (EffectPass pass in depolymentEffect.CurrentTechnique.Passes)
             {
                 pass.Begin();
@@ -195,9 +205,18 @@ namespace SpaceControl.Entities
         {
             if (s_deviceLost == true)
             {
-                depolymentEffect = content.Load<Effect>(c_RouteEffect);
+                LoadEffect();
+                CreateVerts();
                 s_deviceLost = false;
             }
+        }
+
+        public void UpdateColors(Color sourceColor, Color destColor)
+        {
+            verts[0].Color = sourceColor;
+            verts[1].Color = sourceColor;
+            verts[2].Color = destColor;
+            verts[3].Color = destColor;
         }
 
         /// <summary>

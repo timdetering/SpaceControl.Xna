@@ -9,6 +9,7 @@ namespace SpaceControl.Entities
 {
     public class Universe : BaseEntity
     {
+        
         List<Player> players;
         public List<Player> Players
         {
@@ -40,7 +41,26 @@ namespace SpaceControl.Entities
         Color[] defaultPlayerColors = { Color.White, Color.Red, Color.Blue, Color.Yellow, Color.Green,
                                         Color.HotPink };
 
-        
+        float xmin, xmax, zmin, zmax;
+        public float XMin
+        {
+            get { return xmin; }
+        }
+
+        public float XMax
+        {
+            get { return xmax; }
+        }
+
+        public float ZMin
+        {
+            get { return zmin; }
+        }
+        public float ZMax
+        {
+            get { return zmax; }
+        }
+
         public Universe(int numberOfPlayers, int numberOfPlanets)
         {
             players = new List<Player>(numberOfPlayers);
@@ -54,7 +74,15 @@ namespace SpaceControl.Entities
                  players.Add(new Player(defaultPlayerColors[i], false));
             }
 
-            planets = Utility.InitialAssignments.CreatePlanets(numberOfPlanets, 10.0f, 
+            float xSize = 25.0f * numberOfPlanets;
+            float zSize = 30.0f * numberOfPlanets;
+
+            xmin = -(.5f * xSize);
+            xmax = (.5f * xSize);
+            zmin = -(.5f * zSize);
+            zmax = (.5f * zSize);
+
+            planets = Utility.InitialAssignments.CreatePlanets(numberOfPlanets, 25.0f, 
                 new Microsoft.Xna.Framework.Vector3(25 * numberOfPlanets, 2 * numberOfPlanets, 
                 30 * numberOfPlanets));
 
