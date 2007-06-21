@@ -24,13 +24,8 @@ namespace SpaceControl
     {
         GraphicsDeviceManager graphics;
         ContentManager content;
-        GUI_Base base_GUI = null;
-        Camera camera;
-        Texture2D background = null, deploymentRoute = null;
-        SpriteBatch sprite = null;
-        InputHandler input;
-        Universe universe;
-        List<AIControl.AIBasic> AIPlayers = new List<SpaceControl.AIControl.AIBasic>(1);
+        int framesLastSecond = 0, frameCount = 0;
+        float timeSinceLastFrameInfoUpdate = 0.0f;
 
         protected enum GameState : int { MainMenu = 0, Game = 1, GameOver = 2, Minimized }
         private GameState currentState = GameState.MainMenu;
@@ -43,50 +38,9 @@ namespace SpaceControl
 
             content = new ContentManager(Services);
             IsMouseVisible = true;
-            camera = new Camera(new Vector3(0, 0, 0), new Vector3(0, 100, 100));
-            input = new InputHandler("InputHandler.xml", this);
-            
         }
 
-        public void DoNothing(MouseState mouse, Keys[] pressedKeys, Vector3 mouseChange)
-        {
-            return;
-        }
 
-        public void DoPick(MouseState mouse, Keys[] pressedKeys, Vector3 mouseChange)
-        {
-
-            Planet picked = universe.DoPick(mouse.X, mouse.Y, camera.View, camera.Projection);
-            if (picked == null)
-                Utility.SelectedManager.ClearSelected(base_GUI);
-            else
-            {
-                input.CurrentGameState = InputHandler.GameState.PlanetSelected;
-                Utility.SelectedManager.MakeSelected(picked, base_GUI, universe.GetHumanPlayer());
-            }
-        }
-
-        public void CreateDeploymentRoute(MouseState mouse, Keys[] pressedKeys, Vector3 mouseChange)
-        {
-            if (Utility.SelectedManager.Selected == null)   //can't create a depolyment without a source.
-            {
-                input.CurrentGameState = InputHandler.GameState.Default;
-                return;
-            }
-            Planet start = Utility.SelectedManager.Selected;
-            Planet destination = universe.DoPick(mouse.X, mouse.Y, camera.View, camera.Projection);
-            if (destination != null)
-            {
-                start.CreateDeploymentRoute(destination);
-                input.CurrentGameState = InputHandler.GameState.PlanetSelected;
-                Utility.SelectedManager.MakeSelected(start, base_GUI, universe.GetHumanPlayer());
-                
-            }
-            else
-                input.CurrentGameState = InputHandler.GameState.Default;
-
-
-        }
         /// <summary>
         /// Allows the game to perform any initialization it needs to before starting to run.
         /// This is where it can query for any required services and load any non-graphic
@@ -100,17 +54,8 @@ namespace SpaceControl
             graphics.DeviceReset += new EventHandler(DeviceReset);
             graphics.DeviceResetting +=new EventHandler(DeviceLost);
             graphics.DeviceDisposing +=new EventHandler(DeviceDisposed);
-            universe = new Universe(3, 15);
+            GameScreen.MainMenuScreen s = new SpaceControl.GameScreen.MainMenuScreen("MainMenu.xml", graphics.GraphicsDevice);
 
-            for (int i = 2; i < universe.Players.Count; i++)
-            {
-                AIControl.AIBasic ai = new SpaceControl.AIControl.AIBasic(universe.Players[i], universe);
-                AIPlayers.Add(ai);
-                System.Threading.Thread t = new System.Threading.Thread(ai.Run);
-                t.IsBackground = true;
-                t.Start();
-            }
-            camera.JumpTo(universe.GetHumanPlayer().HomeWorld.Position);
         }
 
         void DeviceReset(object sender, EventArgs e)
@@ -130,6 +75,7 @@ namespace SpaceControl
         {
             UnloadGraphicsContent(true);
         }
+
         /// <summary>
         /// Load your graphics content.  If loadAllContent is true, you should
         /// load content from both ResourceManagementMode pools.  Otherwise, just
@@ -141,24 +87,17 @@ namespace SpaceControl
             graphics.PreferMultiSampling = true;
             if (loadAllContent)
             {
-                // TODO: Load any ResourceManagementMode.Automatic content
-                background = (Texture2D)Texture.FromFile(graphics.GraphicsDevice,
-                    @".\Textures\background.jpg");
-                sprite = new SpriteBatch(graphics.GraphicsDevice);
-                deploymentRoute = (Texture2D)Texture.FromFile(graphics.GraphicsDevice,
-                    @".\Textures\Cursor.png");
-
-                GUI_Base.DeviceReset(graphics, content);
-                BaseEntity.DeviceReset(graphics.GraphicsDevice, content);
+                GUI_Base.Initialize(graphics, content, @".\GUIResources\");
+                BaseEntity.Initalize(content, graphics.GraphicsDevice, @".\");
+                
             }
 
             // TODO: Load any ResourceManagementMode.Manual content
-            GUI_Base.Initialize(graphics, content, @".\GUIResources\");
-            BaseEntity.Initalize(content, graphics.GraphicsDevice, @".\");
-            base_GUI = GUI_Base.LoadLayout("GUI Layout.xml", this);
+
+            currentState = GameState.MainMenu;
+            GUI_Base.DeviceReset(graphics, content);
+            BaseEntity.DeviceReset(graphics.GraphicsDevice, content);
             
-
-
         }
 
 
@@ -175,14 +114,11 @@ namespace SpaceControl
             {
                 // TODO: Unload any ResourceManagementMode.Automatic content
                 content.Unload();
-                sprite.Dispose();
-                background.Dispose();
                 
             }
 
             // TODO: Unload any ResourceManagementMode.Manual content
             GUI_Base.DeviceLost();
-            base_GUI = null;
             BaseEntity.DeviceLost();
         }
 
@@ -194,23 +130,30 @@ namespace SpaceControl
         /// <param name="gameTime">Provides a snapshot of timing values.</param>
         protected override void Update(GameTime gameTime)
         {
+
             // Allows the game to exit
             if (GamePad.GetState(PlayerIndex.One).Buttons.Back == ButtonState.Pressed)
                 this.Exit();
 
             if (currentState == GameState.Minimized)
+            {
+                System.Threading.Thread.Sleep(100);
                 return;
+            }
 
             // TODO: Add your update logic here
-            camera.Update(gameTime);
-            BaseEntity.UpdateScene(gameTime);
-            MouseState s = Mouse.GetState();
-            base_GUI.HandleMouse(s);
-            if(base_GUI.PointIsIn(s.X, s.Y) == false)
-                input.UpdateHandler(gameTime);
 
-            Utility.SelectedManager.Update(base_GUI, universe.GetHumanPlayer());
+            timeSinceLastFrameInfoUpdate += gameTime.ElapsedGameTime.Milliseconds;
+            if (timeSinceLastFrameInfoUpdate > 1000.0f)
+            {
+                timeSinceLastFrameInfoUpdate = 0;
+                framesLastSecond = frameCount++;
+                frameCount = 0;
+            }
+            else
+                frameCount++;
 
+            GameScreen.GameScreen.UpdateScreen(gameTime);
             base.Update(gameTime);
         }
         
@@ -220,12 +163,6 @@ namespace SpaceControl
         /// will be set as the desination.
         /// </summary>
         /// <param name="sender"></param>
-        public void CreateDeployment(object sender)
-        {
-            if(input.CurrentGameState == InputHandler.GameState.PlanetSelected &&
-                Utility.SelectedManager.Selected.Owner.IsHuman == true)
-                input.CurrentGameState = InputHandler.GameState.CreateDeploymentRoute;
-        }
 
         /// <summary>
         /// This is called when the game should draw itself.
@@ -236,35 +173,12 @@ namespace SpaceControl
             if (currentState == GameState.Minimized)
                 return;
         
-            graphics.GraphicsDevice.Clear(Color.CornflowerBlue);
+            graphics.GraphicsDevice.Clear(Color.Black);
             graphics.GraphicsDevice.Clear(ClearOptions.DepthBuffer, Color.Black, 1.0f, 0);
             
 
             // TODO: Add your drawing code here
-            
-            sprite.Begin();
-            sprite.Draw(background, new Rectangle(0, 0, graphics.PreferredBackBufferWidth,
-                graphics.PreferredBackBufferHeight), new Rectangle(0,
-                                                                    0,
-                                                                    background.Width,
-                                                                    background.Height),
-                                                                    Color.White);
-            if (input.CurrentGameState == InputHandler.GameState.CreateDeploymentRoute)
-            {
-                MouseState s = Mouse.GetState();
-                sprite.Draw(deploymentRoute, new Rectangle(s.X - deploymentRoute.Width / 2,
-                                                           s.Y - deploymentRoute.Height / 2,
-                                                           deploymentRoute.Width,
-                                                           deploymentRoute.Height),
-                    Color.White);
-                IsMouseVisible = false;
-            }
-            else
-                IsMouseVisible = true;
-            sprite.End();
-            BaseEntity.RenderScene(graphics.GraphicsDevice, camera);
-            base_GUI.Draw(graphics.GraphicsDevice);
-            base.Draw(gameTime);
+            GameScreen.GameScreen.DrawScreen(graphics.GraphicsDevice);            
         }
     }
 }
